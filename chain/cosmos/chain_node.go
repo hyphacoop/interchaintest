@@ -1234,10 +1234,17 @@ func (tn *ChainNode) SubmitProposal(ctx context.Context, keyName string, prop Tx
 	return tn.ExecTx(ctx, keyName, command...)
 }
 
+func (tn *ChainNode) submitProposalCommand(ctx context.Context) string {
+	if tn.IsAboveSDK47(ctx) {
+		return "submit-legacy-proposal"
+	}
+	return "submit-proposal"
+}
+
 // UpgradeProposal submits a software-upgrade governance proposal to the chain.
 func (tn *ChainNode) UpgradeProposal(ctx context.Context, keyName string, prop SoftwareUpgradeProposal) (string, error) {
 	command := []string{
-		"gov", "submit-proposal",
+		"gov", tn.submitProposalCommand(ctx),
 		"software-upgrade", prop.Name,
 		"--upgrade-height", strconv.FormatInt(prop.Height, 10),
 		"--title", prop.Title,
@@ -1248,6 +1255,9 @@ func (tn *ChainNode) UpgradeProposal(ctx context.Context, keyName string, prop S
 	if prop.Info != "" {
 		command = append(command, "--upgrade-info", prop.Info)
 	}
+	if tn.IsAboveSDK47(ctx) {
+		command = append(command, "--no-validate")
+	}
 
 	return tn.ExecTx(ctx, keyName, command...)
 }
@@ -1255,7 +1265,7 @@ func (tn *ChainNode) UpgradeProposal(ctx context.Context, keyName string, prop S
 // TextProposal submits a text governance proposal to the chain.
 func (tn *ChainNode) TextProposal(ctx context.Context, keyName string, prop TextProposal) (string, error) {
 	command := []string{
-		"gov", "submit-proposal",
+		"gov", tn.submitProposalCommand(ctx),
 		"--type", "text",
 		"--title", prop.Title,
 		"--description", prop.Description,
@@ -1283,7 +1293,7 @@ func (tn *ChainNode) ConsumerAdditionProposal(ctx context.Context, keyName strin
 	filePath := filepath.Join(tn.HomeDir(), fileName)
 
 	return tn.ExecTx(ctx, keyName,
-		"gov", "submit-legacy-proposal", "consumer-addition", filePath,
+		"gov", tn.submitProposalCommand(ctx), "consumer-addition", filePath,
 		"--gas", "auto",
 	)
 }
@@ -1305,7 +1315,7 @@ func (tn *ChainNode) ParamChangeProposal(ctx context.Context, keyName string, pr
 	proposalPath := filepath.Join(tn.HomeDir(), proposalFilename)
 
 	command := []string{
-		"gov", "submit-proposal",
+		"gov", tn.submitProposalCommand(ctx),
 		"param-change",
 		proposalPath,
 	}
