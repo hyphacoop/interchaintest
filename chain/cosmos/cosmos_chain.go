@@ -10,6 +10,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -49,6 +50,7 @@ import (
 	"github.com/strangelove-ventures/interchaintest/v7/internal/dockerutil"
 	"github.com/strangelove-ventures/interchaintest/v7/testutil"
 	"go.uber.org/zap"
+	"golang.org/x/mod/semver"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -1185,6 +1187,39 @@ func (c *CosmosChain) StartProvider(testName string, ctx context.Context, additi
 	return nil
 }
 
+func (c *CosmosChain) transformCCVState(ctx context.Context, ccvState []byte, targetVersion string) ([]byte, error) {
+	// not every consumer chain ships with a transform command, and it's not really easy to link to icsv4 because we've got
+	// dependencies still in ics v3. So we're going to run the transform command in a new container;
+	// we'll mount the node's volume into it so it'll have access to the file.
+
+	err := c.GetNode().WriteFile(ctx, ccvState, "ccvconsumer.json")
+	if err != nil {
+		return nil, fmt.Errorf("failed to write ccv state to file: %w", err)
+	}
+
+	job := dockerutil.NewImage(c.log, c.GetNode().DockerClient, c.GetNode().NetworkID,
+		c.GetNode().TestName, "ghcr.io/strangelove-ventures/heighliner/ics", "v4.0.0",
+	)
+	toVersion := semver.Major(targetVersion)
+	if toVersion == "v3" {
+		toVersion = semver.MajorMinor(targetVersion)
+	}
+	res := job.Run(
+		ctx, []string{
+			"interchain-security-cd", "genesis", "transform", "--to", toVersion + ".x", path.Join(c.GetNode().HomeDir(), "ccvconsumer.json"),
+		}, dockerutil.ContainerOptions{
+			Binds: c.GetNode().Bind(),
+		})
+	if res.Err != nil {
+		return nil, fmt.Errorf("failed to transform ccv state: %w", res.Err)
+	}
+	// ccvState, err = c.GetNode().ReadFile(ctx, "ccvconsumer.json")
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to read transformed ccv state: %w", err)
+	// }
+	return res.Stdout, nil
+}
+
 // Bootstraps the consumer chain and starts it from genesis
 func (c *CosmosChain) StartConsumer(testName string, ctx context.Context, additionalGenesisWallets ...ibc.WalletAmount) error {
 	chainCfg := c.Config()
@@ -1293,67 +1328,82 @@ func (c *CosmosChain) StartConsumer(testName string, ctx context.Context, additi
 		return err
 	}
 
-	// populate genesis file ccvconsumer module app_state.
-	// fetch provider latest block (timestamp, root.hash, and next_validators_hash) to populate provider_consensus_state
-	// populate provider_client_state with trusting and unbonding periods, latest_height.revision_height of height which is used for consensus state
-	// populate initial_val_set with provider val pubkeys and power
-
-	nextValidatorsHash := block.Block.NextValidatorsHash
-	timestamp := block.Block.Time
-	rootHash := block.Block.AppHash
-
-	page := int(1)
-	perPage := int(1000)
-	providerVals, err := c.Provider.getFullNode().Client.Validators(ctx, &providerHeightInt64, &page, &perPage)
-	if err != nil {
-		return fmt.Errorf("failed to get provider validators: %w", err)
-	}
-
-	initialVals := make([]abcitypes.ValidatorUpdate, len(providerVals.Validators))
-	for i, val := range providerVals.Validators {
-		initialVals[i] = abcitypes.ValidatorUpdate{
-			PubKey: crypto.PublicKey{Sum: &crypto.PublicKey_Ed25519{Ed25519: val.PubKey.Bytes()}},
-			Power:  val.VotingPower,
+	consumerICS := c.GetNode().ICSVersion(ctx)
+	var ccvStateMarshaled []byte
+	if semver.Compare(consumerICS, "v3.3.0") >= 0 {
+		ccvStateMarshaled, _, err = c.Provider.GetNode().ExecQuery(ctx, "provider", "consumer-genesis", c.cfg.ChainID)
+		if err != nil {
+			return fmt.Errorf("failed to query provider for ccv state: %w", err)
 		}
+		providerICS := c.Provider.GetNode().ICSVersion(ctx)
+		if semver.MajorMinor(consumerICS) != semver.MajorMinor(providerICS) {
+			ccvStateMarshaled, err = c.transformCCVState(ctx, ccvStateMarshaled, consumerICS)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		// populate genesis file ccvconsumer module app_state.
+		// fetch provider latest block (timestamp, root.hash, and next_validators_hash) to populate provider_consensus_state
+		// populate provider_client_state with trusting and unbonding periods, latest_height.revision_height of height which is used for consensus state
+		// populate initial_val_set with provider val pubkeys and power
+
+		nextValidatorsHash := block.Block.NextValidatorsHash
+		timestamp := block.Block.Time
+		rootHash := block.Block.AppHash
+
+		page := int(1)
+		perPage := int(1000)
+		providerVals, err := c.Provider.getFullNode().Client.Validators(ctx, &providerHeightInt64, &page, &perPage)
+		if err != nil {
+			return fmt.Errorf("failed to get provider validators: %w", err)
+		}
+
+		initialVals := make([]abcitypes.ValidatorUpdate, len(providerVals.Validators))
+		for i, val := range providerVals.Validators {
+			initialVals[i] = abcitypes.ValidatorUpdate{
+				PubKey: crypto.PublicKey{Sum: &crypto.PublicKey_Ed25519{Ed25519: val.PubKey.Bytes()}},
+				Power:  val.VotingPower,
+			}
+		}
+
+		providerCfg := c.Provider.Config()
+		clientState := ibctmtypes.NewClientState(
+			providerCfg.ChainID,
+			ibctmtypes.DefaultTrustLevel,
+			DefaultProviderUnbondingPeriod/2,
+			DefaultProviderUnbondingPeriod, // Needs to match provider unbonding period
+			ccvprovidertypes.DefaultMaxClockDrift,
+			clienttypes.Height{
+				RevisionHeight: uint64(providerHeight),
+				RevisionNumber: clienttypes.ParseChainID(providerCfg.ChainID),
+			},
+			commitmenttypes.GetSDKSpecs(),
+			defaultUpgradePath,
+		)
+
+		root := commitmenttypes.MerkleRoot{
+			Hash: rootHash,
+		}
+
+		consensusState := ibctmtypes.NewConsensusState(timestamp, root, nextValidatorsHash)
+
+		ccvState := ccvconsumertypes.NewInitialGenesisState(
+			clientState,
+			consensusState,
+			initialVals,
+			ccvconsumertypes.DefaultGenesisState().GetParams(),
+		)
+
+		ccvState.Params.Enabled = true
+
+		ccvStateMarshaled, err = c.cfg.EncodingConfig.Codec.MarshalJSON(ccvState)
+		c.log.Info("HERE STATE!", zap.String("GEN", string(ccvStateMarshaled)))
+		if err != nil {
+			return fmt.Errorf("failed to marshal ccv state to json: %w", err)
+		}
+
 	}
-
-	providerCfg := c.Provider.Config()
-
-	clientState := ibctmtypes.NewClientState(
-		providerCfg.ChainID,
-		ibctmtypes.DefaultTrustLevel,
-		DefaultProviderUnbondingPeriod/2,
-		DefaultProviderUnbondingPeriod, // Needs to match provider unbonding period
-		ccvprovidertypes.DefaultMaxClockDrift,
-		clienttypes.Height{
-			RevisionHeight: uint64(providerHeight),
-			RevisionNumber: clienttypes.ParseChainID(providerCfg.ChainID),
-		},
-		commitmenttypes.GetSDKSpecs(),
-		defaultUpgradePath,
-	)
-
-	root := commitmenttypes.MerkleRoot{
-		Hash: rootHash,
-	}
-
-	consensusState := ibctmtypes.NewConsensusState(timestamp, root, nextValidatorsHash)
-
-	ccvState := ccvconsumertypes.NewInitialGenesisState(
-		clientState,
-		consensusState,
-		initialVals,
-		ccvconsumertypes.DefaultGenesisState().GetParams(),
-	)
-
-	ccvState.Params.Enabled = true
-
-	ccvStateMarshaled, err := c.cfg.EncodingConfig.Codec.MarshalJSON(ccvState)
-	c.log.Info("HERE STATE!", zap.String("GEN", string(ccvStateMarshaled)))
-	if err != nil {
-		return fmt.Errorf("failed to marshal ccv state to json: %w", err)
-	}
-
 	var ccvStateUnmarshaled interface{}
 	if err := json.Unmarshal(ccvStateMarshaled, &ccvStateUnmarshaled); err != nil {
 		return fmt.Errorf("failed to unmarshal ccv state json: %w", err)
