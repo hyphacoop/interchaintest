@@ -868,6 +868,10 @@ type ValidatorWithIntPower struct {
 
 // Bootstraps the chain and starts it from genesis
 func (c *CosmosChain) Start(testName string, ctx context.Context, additionalGenesisWallets ...ibc.WalletAmount) error {
+	if c.cfg.ConsumerCopyProviderKey != nil && c.Provider == nil {
+		return fmt.Errorf("don't set ConsumerCopyProviderKey if it's not a consumer chain")
+	}
+
 	chainCfg := c.Config()
 
 	decimalPow := int64(math.Pow10(int(*chainCfg.CoinDecimals)))
@@ -1091,6 +1095,9 @@ func (c *CosmosChain) Start(testName string, ctx context.Context, additionalGene
 
 // Bootstraps the provider chain and starts it from genesis
 func (c *CosmosChain) StartProvider(testName string, ctx context.Context, additionalGenesisWallets ...ibc.WalletAmount) error {
+	if c.cfg.ConsumerCopyProviderKey != nil {
+		return fmt.Errorf("don't set ConsumerCopyProviderKey in the provider chain")
+	}
 	existingFunc := c.cfg.ModifyGenesis
 	c.cfg.ModifyGenesis = func(cc ibc.ChainConfig, b []byte) ([]byte, error) {
 		var err error
@@ -1218,15 +1225,41 @@ func (c *CosmosChain) StartConsumer(testName string, ctx context.Context, additi
 		return err
 	}
 
+	eg = new(errgroup.Group)
+
 	// Copy provider priv val keys to these nodes
 	for i, val := range c.Provider.Validators {
-		privVal, err := val.privValFileContent(ctx)
-		if err != nil {
-			return err
-		}
-		if err := c.Validators[i].overwritePrivValFile(ctx, privVal); err != nil {
-			return err
-		}
+		i := i
+		val := val
+		eg.Go(func() error {
+			copy := true
+			if c.cfg.ConsumerCopyProviderKey != nil {
+				copy = c.cfg.ConsumerCopyProviderKey(i)
+			}
+			if copy {
+				privVal, err := val.privValFileContent(ctx)
+				if err != nil {
+					return err
+				}
+				if err := c.Validators[i].overwritePrivValFile(ctx, privVal); err != nil {
+					return err
+				}
+			} else {
+				key, _, err := c.Validators[i].ExecBin(ctx, "tendermint", "show-validator")
+				if err != nil {
+					return fmt.Errorf("failed to get consumer validator pubkey: %w", err)
+				}
+				keyStr := strings.TrimSpace(string(key))
+				_, err = c.Provider.Validators[i].ExecTx(ctx, valKey, "provider", "assign-consensus-key", c.cfg.ChainID, keyStr)
+				if err != nil {
+					return fmt.Errorf("failed to assign consumer validator pubkey: %w", err)
+				}
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return err
 	}
 
 	if c.cfg.PreGenesis != nil {

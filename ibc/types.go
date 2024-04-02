@@ -60,6 +60,8 @@ type ChainConfig struct {
 	AdditionalStartArgs []string
 	// Environment variables for chain nodes
 	Env []string
+	// For consumer chains only; returns true if the provider key should be copied to the consumer chain for the validator at the given index
+	ConsumerCopyProviderKey func(int) bool
 }
 
 func (c ChainConfig) Clone() ChainConfig {
@@ -184,6 +186,10 @@ func (c ChainConfig) MergeChainSpecConfig(other ChainConfig) ChainConfig {
 
 	if other.Env != nil {
 		c.Env = append(c.Env, other.Env...)
+	}
+
+	if other.ConsumerCopyProviderKey != nil {
+		c.ConsumerCopyProviderKey = other.ConsumerCopyProviderKey
 	}
 
 	return c
