@@ -1191,7 +1191,8 @@ func (tn *ChainNode) SubmitProposal(ctx context.Context, keyName string, prop Tx
 }
 
 func (tn *ChainNode) submitProposalCommand(ctx context.Context) string {
-	if tn.IsAboveSDK47(ctx) {
+	// we can't use IsAboveSDK47 because that checks for the genesis command. Not every chain that's >= v0.47 has the genesis command.
+	if tn.HasCommand(ctx, "tx", "gov", "submit-legacy-proposal", "param-change") {
 		return "submit-legacy-proposal"
 	}
 	return "submit-proposal"
