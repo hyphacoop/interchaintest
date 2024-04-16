@@ -149,7 +149,7 @@ func (r *Relayer) CreateChannel(ctx context.Context, rep ibc.RelayerExecReporter
 	}
 	res := r.Exec(ctx, rep, cmd, nil)
 	if res.Err != nil {
-		return res.Err
+		return fmt.Errorf("failed to create channel from %s to %s: %w", pathConfig.chainA.chainID, pathConfig.chainB.chainID, res.Err)
 	}
 	pathConfig.chainA.portID = opts.SourcePortName
 	pathConfig.chainB.portID = opts.DestPortName
@@ -162,7 +162,7 @@ func (r *Relayer) CreateConnections(ctx context.Context, rep ibc.RelayerExecRepo
 
 	res := r.Exec(ctx, rep, cmd, nil)
 	if res.Err != nil {
-		return res.Err
+		return fmt.Errorf("failed to create connection from %s to %s: %w", pathConfig.chainA.chainID, pathConfig.chainB.chainID, res.Err)
 	}
 
 	chainAConnectionID, chainBConnectionID, err := GetConnectionIDsFromStdout(res.Stdout)
@@ -202,7 +202,7 @@ func (r *Relayer) CreateClients(ctx context.Context, rep ibc.RelayerExecReporter
 	}
 	res := r.Exec(ctx, rep, chainACreateClientCmd, nil)
 	if res.Err != nil {
-		return res.Err
+		return fmt.Errorf("failed to create client with host %s and reference %s: %w", pathConfig.chainA.chainID, pathConfig.chainB.chainID, res.Err)
 	}
 
 	chainAClientId, err := GetClientIdFromStdout(res.Stdout)
@@ -220,7 +220,7 @@ func (r *Relayer) CreateClients(ctx context.Context, rep ibc.RelayerExecReporter
 	}
 	res = r.Exec(ctx, rep, chainBCreateClientCmd, nil)
 	if res.Err != nil {
-		return res.Err
+		return fmt.Errorf("failed to create client with host %s and reference %s: %w", pathConfig.chainB.chainID, pathConfig.chainA.chainID, res.Err)
 	}
 
 	chainBClientId, err := GetClientIdFromStdout(res.Stdout)

@@ -3,6 +3,7 @@ package interchaintest
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"cosmossdk.io/math"
 	"github.com/docker/docker/client"
@@ -378,6 +379,11 @@ func (ic *Interchain) Build(ctx context.Context, rep *testreporter.RelayerExecRe
 	}
 
 	var eg errgroup.Group
+	type relayerChain struct {
+		relayer ibc.Relayer
+		chain   ibc.Chain
+	}
+	locks := map[relayerChain]*sync.Mutex{}
 
 	// Now link the paths in parallel
 	// Creates clients, connections, and channels for each link/path.
@@ -386,7 +392,17 @@ func (ic *Interchain) Build(ctx context.Context, rep *testreporter.RelayerExecRe
 		link := link
 		p := link.provider
 		c := link.consumer
+		if _, ok := locks[relayerChain{rp.Relayer, p}]; !ok {
+			locks[relayerChain{rp.Relayer, p}] = &sync.Mutex{}
+		}
+		if _, ok := locks[relayerChain{rp.Relayer, c}]; !ok {
+			locks[relayerChain{rp.Relayer, c}] = &sync.Mutex{}
+		}
 		eg.Go(func() error {
+			locks[relayerChain{rp.Relayer, p}].Lock()
+			defer locks[relayerChain{rp.Relayer, p}].Unlock()
+			locks[relayerChain{rp.Relayer, c}].Lock()
+			defer locks[relayerChain{rp.Relayer, c}].Unlock()
 			// If the user specifies a zero value CreateClientOptions struct then we fall back to the default
 			// client options.
 			if link.createClientOpts == (ibc.CreateClientOptions{}) {
@@ -496,7 +512,17 @@ func (ic *Interchain) Build(ctx context.Context, rep *testreporter.RelayerExecRe
 		link := link
 		c0 := link.chains[0]
 		c1 := link.chains[1]
+		if _, ok := locks[relayerChain{rp.Relayer, c0}]; !ok {
+			locks[relayerChain{rp.Relayer, c0}] = &sync.Mutex{}
+		}
+		if _, ok := locks[relayerChain{rp.Relayer, c1}]; !ok {
+			locks[relayerChain{rp.Relayer, c1}] = &sync.Mutex{}
+		}
 		eg.Go(func() error {
+			locks[relayerChain{rp.Relayer, c0}].Lock()
+			defer locks[relayerChain{rp.Relayer, c0}].Unlock()
+			locks[relayerChain{rp.Relayer, c1}].Lock()
+			defer locks[relayerChain{rp.Relayer, c1}].Unlock()
 			// If the user specifies a zero value CreateClientOptions struct then we fall back to the default
 			// client options.
 			if link.createClientOpts == (ibc.CreateClientOptions{}) {
