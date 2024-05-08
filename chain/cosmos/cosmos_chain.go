@@ -29,7 +29,7 @@ import (
 	paramsutils "github.com/cosmos/cosmos-sdk/x/params/client/utils"
 	cosmosproto "github.com/cosmos/gogoproto/proto"
 	chanTypes "github.com/cosmos/ibc-go/v7/modules/core/04-channel/types"
-	ccvclient "github.com/cosmos/interchain-security/v3/x/ccv/provider/client"
+	ccvclient "github.com/cosmos/interchain-security/v4/x/ccv/provider/client"
 	dockertypes "github.com/docker/docker/api/types"
 	volumetypes "github.com/docker/docker/api/types/volume"
 	"github.com/docker/docker/client"
