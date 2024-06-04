@@ -444,7 +444,7 @@ func (c *CosmosChain) PushNewWasmClientProposal(ctx context.Context, keyName str
 	if err != nil {
 		return tx, "", fmt.Errorf("failed to submit wasm client proposal: %w", err)
 	}
-	tx, err = c.txProposal(txHash)
+	tx, err = c.GetTxProposal(txHash)
 	return tx, codeHash, err
 }
 
@@ -454,7 +454,7 @@ func (c *CosmosChain) UpgradeProposal(ctx context.Context, keyName string, prop 
 	if err != nil {
 		return tx, fmt.Errorf("failed to submit upgrade proposal: %w", err)
 	}
-	return c.txProposal(txHash)
+	return c.GetTxProposal(txHash)
 }
 
 // SubmitProposal submits a gov v1 proposal to the chain.
@@ -463,7 +463,7 @@ func (c *CosmosChain) SubmitProposal(ctx context.Context, keyName string, prop T
 	if err != nil {
 		return tx, fmt.Errorf("failed to submit gov v1 proposal: %w", err)
 	}
-	return c.txProposal(txHash)
+	return c.GetTxProposal(txHash)
 }
 
 // Build a gov v1 proposal type.
@@ -496,7 +496,7 @@ func (c *CosmosChain) TextProposal(ctx context.Context, keyName string, prop Tex
 	if err != nil {
 		return tx, fmt.Errorf("failed to submit upgrade proposal: %w", err)
 	}
-	return c.txProposal(txHash)
+	return c.GetTxProposal(txHash)
 }
 
 // ParamChangeProposal submits a param change proposal to the chain, signed by keyName.
@@ -506,7 +506,7 @@ func (c *CosmosChain) ParamChangeProposal(ctx context.Context, keyName string, p
 		return tx, fmt.Errorf("failed to submit param change proposal: %w", err)
 	}
 
-	return c.txProposal(txHash)
+	return c.GetTxProposal(txHash)
 }
 
 // QueryParam returns the param state of a given key.
@@ -525,10 +525,10 @@ func (c *CosmosChain) ConsumerAdditionProposal(ctx context.Context, keyName stri
 	if err != nil {
 		return tx, fmt.Errorf("failed to submit consumer addition proposal: %w", err)
 	}
-	return c.txProposal(txHash)
+	return c.GetTxProposal(txHash)
 }
 
-func (c *CosmosChain) txProposal(txHash string) (tx TxProposal, _ error) {
+func (c *CosmosChain) GetTxProposal(txHash string) (tx TxProposal, _ error) {
 	txResp, err := c.GetTransaction(txHash)
 	if err != nil {
 		return tx, fmt.Errorf("failed to get transaction %s: %w", txHash, err)
