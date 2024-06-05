@@ -11,7 +11,7 @@ require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/avast/retry-go/v4 v4.5.0
 	github.com/cometbft/cometbft v0.37.5
-	github.com/cosmos/cosmos-sdk v0.47.10
+	github.com/cosmos/cosmos-sdk v0.47.13-ics-lsm
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/cosmos/gogoproto v1.4.10
 	github.com/cosmos/ibc-go/v7 v7.4.0

@@ -1,8 +1,6 @@
 module github.com/strangelove-ventures/localinterchain
 
-go 1.21.1
-
-toolchain go1.22.1
+go 1.22.1
 
 replace (
 	github.com/cosmos/interchain-security/v4 => github.com/cosmos/interchain-security/v4 v4.2.0-lsm-rc0
@@ -16,7 +14,7 @@ replace (
 )
 
 require (
-	github.com/cosmos/cosmos-sdk v0.47.10
+	github.com/cosmos/cosmos-sdk v0.47.13-ics-lsm
 	github.com/go-playground/validator v9.31.0+incompatible
 	github.com/gorilla/mux v1.8.0
 	github.com/spf13/cobra v1.8.0
