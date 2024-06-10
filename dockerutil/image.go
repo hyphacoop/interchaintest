@@ -200,11 +200,19 @@ func (image *Image) Start(ctx context.Context, cmd []string, opts ContainerOptio
 		return nil, image.wrapErr(err)
 	}
 
+	logCmd := make([]string, len(cmd))
+	for i, c := range cmd {
+		if len(c) > 100 {
+			logCmd[i] = c[:100] + "..."
+		} else {
+			logCmd[i] = c
+		}
+	}
 	var (
 		containerName = SanitizeContainerName(image.testName + "-" + RandLowerCaseLetterString(6))
 		hostName      = CondenseHostName(containerName)
 		logger        = image.log.With(
-			zap.String("command", strings.Join(cmd, " ")),
+			zap.String("command", strings.Join(logCmd, " ")),
 			zap.String("hostname", hostName),
 			zap.String("container", containerName),
 		)
